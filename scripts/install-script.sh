@@ -28,7 +28,7 @@ if ! getent passwd "$UID_VAL" >/dev/null 2>&1; then
     if [ -w /etc/passwd ]; then
         echo "container:x:$UID_VAL:$GID_VAL:container:/home/container:/usr/sbin/nologin" >> /etc/passwd
     else
-        echo "[Git] Warning: /etc/passwd is not writable; SSH user fallback may fail at runtime. Ensure you provide NAME and ACCESS_TOKEN for HTTPS fallback."
+        echo "[Git] Warning: /etc/passwd is not writable; SSH user fallback may fail at runtime. Ensure you provide USERNAME and/or ACCESS_TOKEN for HTTPS fallback."
     fi
 fi
 
@@ -37,8 +37,8 @@ echo -e "[SETUP] Create folders"
 mkdir -p logs tmp www
 
 # Clone the default egg repository into a temporary directory
-echo "[Git] Cloning default repository 'https://github.com/Jishwaah/pterodactyl-nginx-egg' into temporary directory."
-git clone https://github.com/Jishwaah/pterodactyl-nginx-egg /mnt/server/gtemp > /dev/null 2>&1 \
+echo "[Git] Cloning default repository 'https://github.com/jishwaah/pterodactyl-nginx-egg' into temporary directory."
+git clone https://github.com/jishwaah/pterodactyl-nginx-egg /mnt/server/gtemp > /dev/null 2>&1 \
     && echo "[Git] Repository cloned successfully." \
     || { echo "[Git] Error: Default repository clone failed."; exit 21; }
 
@@ -69,6 +69,8 @@ else
         GIT_ADDRESS="${GIT_ADDRESS}.git"
         echo "[Git] Added .git suffix to GIT_ADDRESS: ${GIT_ADDRESS}"
     fi
+
+    GIT_HTTPS_USERNAME="${USERNAME:-x-access-token}"
 
     # SSH bootstrap for git@github.com / ssh:// remotes
     if [[ "${GIT_ADDRESS}" =~ ^git@|^ssh:// ]]; then
@@ -156,11 +158,16 @@ else
     mv /tmp/github_known_hosts /root/.ssh/known_hosts
     chmod 600 /root/.ssh/known_hosts
 
-    export GIT_SSH_COMMAND="ssh -i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=${GIT_SSH_STRICT_HOST_CHECKING:-yes} -o UserKnownHostsFile=/root/.ssh/known_hosts"
+    export GIT_SSH_COMMAND="ssh -i /root/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=${GIT_SSH_STRICT_HOST_CHECKING:-yes} -o UserKnownHostsFile=/root/.ssh/known_hosts"
 
     echo "[Git] GitHub host key verified and known_hosts created."
     ssh -T git@github.com || true
-fi
+    elif [ -n "${ACCESS_TOKEN:-}" ]; then
+        echo "[Git] HTTPS remote detected. Using personal access token authentication."
+        GIT_ADDRESS="$(printf '%s' "${GIT_ADDRESS}" | sed -E "s|^https://|https://${GIT_HTTPS_USERNAME}:${ACCESS_TOKEN}@|")"
+    else
+        echo "[Git] Using anonymous Git access."
+    fi
 
     # Check if the 'www' directory exists, if not create it
     if [ ! -d /mnt/server/www ]; then

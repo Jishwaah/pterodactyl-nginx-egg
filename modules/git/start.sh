@@ -98,17 +98,18 @@ if [[ "$CURRENT_URL" =~ ^git@|^ssh:// ]]; then
   fi
   chmod 600 "$SSH_DIR/known_hosts"
 
-  export GIT_SSH_COMMAND="ssh -i $SSH_DIR/id_ed25519 -o StrictHostKeyChecking=${GIT_SSH_STRICT_HOST_CHECKING} -o UserKnownHostsFile=$SSH_DIR/known_hosts"
+  export GIT_SSH_COMMAND="ssh -i $SSH_DIR/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=${GIT_SSH_STRICT_HOST_CHECKING} -o UserKnownHostsFile=$SSH_DIR/known_hosts"
 
 # HTTPS token auth fallback
 else
-  if [[ -n "${USERNAME:-}" ]] && [[ -n "${ACCESS_TOKEN:-}" ]]; then
+  if [[ -n "${ACCESS_TOKEN:-}" ]]; then
     echo -e "${WHITE}[Git] HTTPS remote detected; applying token auth…${NC}"
 
     CLEAN_URL="$(echo "$CURRENT_URL" | sed -E 's|https://[^@]*@|https://|')"
     GIT_DOMAIN="$(echo "$CLEAN_URL" | sed -E 's|https://([^/]+)/.*|\1|')"
     GIT_REPO="$(echo "$CLEAN_URL" | sed -E 's|https://[^/]+/(.*)|\1|')"
-    NEW_URL="https://${USERNAME}:${ACCESS_TOKEN}@${GIT_DOMAIN}/${GIT_REPO}"
+    GIT_HTTPS_USERNAME="${USERNAME:-x-access-token}"
+    NEW_URL="https://${GIT_HTTPS_USERNAME}:${ACCESS_TOKEN}@${GIT_DOMAIN}/${GIT_REPO}"
 
     git remote set-url origin "$NEW_URL"
     echo -e "${GREEN}[Git] Remote URL updated with credentials.${NC}"
