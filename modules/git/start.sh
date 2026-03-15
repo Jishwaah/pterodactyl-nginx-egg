@@ -28,6 +28,28 @@ fi
 
 header "[Git] Checking & Updating Repository"
 
+# Ensure user info exists for current UID (needed by SSH)
+if ! getent passwd "$(id -u)" >/dev/null 2>&1; then
+  if [ -w /etc/passwd ]; then
+    echo "container:x:$(id -u):$(id -g):container:/home/container:/usr/sbin/nologin" >> /etc/passwd
+  else
+    echo -e "${YELLOW}[Git] Warning: no passwd entry for uid $(id -u), and /etc/passwd is not writable. Setting HOME=/tmp.${NC}"
+    export HOME="/tmp"
+  fi
+fi
+
+# Ensure we have a writable directory for SSH and git operations
+if [ -z "${HOME:-}" ] || [ ! -d "${HOME}" ] || [ ! -w "${HOME}" ]; then
+  HOME="/tmp"
+fi
+mkdir -p "$HOME"
+
+SSH_DIR="$HOME/.ssh"
+if ! mkdir -p "$SSH_DIR" 2>/dev/null; then
+  SSH_DIR="/tmp/.ssh"
+  mkdir -p "$SSH_DIR"
+fi
+
 # Ensure git exists
 if ! command -v git >/dev/null 2>&1; then
   echo -e "${RED}[Git] Git not installed; skipping.${NC}"
@@ -53,31 +75,30 @@ fi
 if [[ "$CURRENT_URL" =~ ^git@|^ssh:// ]]; then
   echo -e "${WHITE}[Git] SSH remote detected.${NC}"
 
-  mkdir -p /home/container/.ssh
-  chmod 700 /home/container/.ssh
+  mkdir -p "$SSH_DIR"
+  chmod 700 "$SSH_DIR"
 
   if [[ -z "${GIT_SSH_PRIVATE_KEY:-}" ]]; then
     echo -e "${RED}[Git] SSH remote is configured but GIT_SSH_PRIVATE_KEY is empty.${NC}"
     exit 1
   fi
 
-
-  echo "${GIT_SSH_PRIVATE_KEY}" | tr -d '\r' > /home/container/.ssh/id_ed25519
-  chmod 600 /home/container/.ssh/id_ed25519
+  echo "${GIT_SSH_PRIVATE_KEY}" | tr -d '\r' > "$SSH_DIR/id_ed25519"
+  chmod 600 "$SSH_DIR/id_ed25519"
 
   if [[ -n "${GIT_SSH_KNOWN_HOSTS:-}" ]]; then
-    echo "${GIT_SSH_KNOWN_HOSTS}" > /home/container/.ssh/known_hosts
+    echo "${GIT_SSH_KNOWN_HOSTS}" > "$SSH_DIR/known_hosts"
   else
     if command -v ssh-keyscan >/dev/null 2>&1; then
-      ssh-keyscan -H github.com > /home/container/.ssh/known_hosts 2>/dev/null
+      ssh-keyscan -H github.com > "$SSH_DIR/known_hosts" 2>/dev/null
     else
       echo -e "${RED}[Git] ssh-keyscan is not available and GIT_SSH_KNOWN_HOSTS is empty.${NC}"
       exit 1
     fi
   fi
-  chmod 600 /home/container/.ssh/known_hosts
+  chmod 600 "$SSH_DIR/known_hosts"
 
-  export GIT_SSH_COMMAND="ssh -i /home/container/.ssh/id_ed25519 -o StrictHostKeyChecking=${GIT_SSH_STRICT_HOST_CHECKING} -o UserKnownHostsFile=/home/container/.ssh/known_hosts"
+  export GIT_SSH_COMMAND="ssh -i $SSH_DIR/id_ed25519 -o StrictHostKeyChecking=${GIT_SSH_STRICT_HOST_CHECKING} -o UserKnownHostsFile=$SSH_DIR/known_hosts"
 
 # HTTPS token auth fallback
 else
@@ -97,7 +118,7 @@ else
 fi
 
 echo -e "${WHITE}[Git] Fetching latest changes…${NC}"
-git fetch origin
+git fetch origin || { echo -e "${RED}[Git] Failed to fetch origin via SSH. Ensure GIT_SSH_PRIVATE_KEY and known_hosts are correct.${NC}"; exit 1; }
 
 echo -e "${WHITE}[Git] Resetting working tree to origin/${GIT_BRANCH}…${NC}"
 git reset --hard "origin/${GIT_BRANCH}"
