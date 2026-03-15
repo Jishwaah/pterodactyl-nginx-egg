@@ -21,6 +21,17 @@ wget -q -O - https://api.tavuru.de/version/Ym0T/pterodactyl-nginx-egg \
 # Change to server directory
 cd /mnt/server
 
+# Ensure current uid has a passwd entry for runtime SSH
+UID_VAL=$(id -u)
+GID_VAL=$(id -g)
+if ! getent passwd "$UID_VAL" >/dev/null 2>&1; then
+    if [ -w /etc/passwd ]; then
+        echo "container:x:$UID_VAL:$GID_VAL:container:/home/container:/usr/sbin/nologin" >> /etc/passwd
+    else
+        echo "[Git] Warning: /etc/passwd is not writable; SSH user fallback may fail at runtime. Ensure you provide NAME and ACCESS_TOKEN for HTTPS fallback."
+    fi
+fi
+
 # [SETUP] Create necessary folders
 echo -e "[SETUP] Create folders"
 mkdir -p logs tmp www
@@ -61,42 +72,95 @@ else
 
     # SSH bootstrap for git@github.com / ssh:// remotes
     if [[ "${GIT_ADDRESS}" =~ ^git@|^ssh:// ]]; then
-        echo "[Git] SSH Git remote detected."
+    echo "[Git] SSH Git remote detected."
 
-        mkdir -p /root/.ssh
-        chmod 700 /root/.ssh
+    mkdir -p /root/.ssh
+    chmod 700 /root/.ssh
 
-        if [ -z "${GIT_SSH_PRIVATE_KEY:-}" ]; then
-            echo "[Git] Error: GIT_SSH_PRIVATE_KEY is empty."
-            exit 15
-        fi
+    if [ -z "${GIT_SSH_PRIVATE_KEY:-}" ]; then
+        echo "[Git] Error: GIT_SSH_PRIVATE_KEY is empty."
+        exit 15
+    fi
 
-        echo "${GIT_SSH_PRIVATE_KEY}" | tr -d '\r' > /root/.ssh/id_ed25519
-        chmod 600 /root/.ssh/id_ed25519
+    # Normalize line endings and escaped newline content for the key
+    KEY_CONTENT="${GIT_SSH_PRIVATE_KEY//$'\r'/}"
+    # Convert literal escape sequences for newlines to actual newlines
+    KEY_CONTENT="$(printf '%s' "$KEY_CONTENT" | perl -pe 's/\\n/\n/g')"
 
-        if [ -n "${GIT_SSH_KNOWN_HOSTS:-}" ]; then
-            echo "${GIT_SSH_KNOWN_HOSTS}" > /root/.ssh/known_hosts
-        else
-            ssh-keyscan -H github.com > /root/.ssh/known_hosts 2>/dev/null
-        fi
-        chmod 600 /root/.ssh/known_hosts
+    # Write cleaned key
+    echo "[Git] Info: Writing private key to /root/.ssh/id_ed25519"
+    printf '%s\n' "$KEY_CONTENT" > /root/.ssh/id_ed25519
 
-        export GIT_SSH_COMMAND="ssh -i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=${GIT_SSH_STRICT_HOST_CHECKING:-yes} -o UserKnownHostsFile=/root/.ssh/known_hosts"
-        echo "[Git] SSH configuration prepared."
-    else
-        # If username and access token are provided, use authenticated HTTPS access
-        if [ -n "${USERNAME:-}" ] && [ -n "${ACCESS_TOKEN:-}" ]; then
-            echo "[Git] Using authenticated Git access."
-
-            GIT_DOMAIN=$(echo "${GIT_ADDRESS}" | cut -d/ -f3)
-            GIT_REPO=$(echo "${GIT_ADDRESS}" | cut -d/ -f4-)
-
-            GIT_ADDRESS="https://${USERNAME}:${ACCESS_TOKEN}@${GIT_DOMAIN}/${GIT_REPO}"
-            echo "[Git] Authenticated URL configured."
-        else
-            echo "[Git] Using anonymous Git access."
+    # If key ended up on a single line, attempt a one-line OpenSSH key reformat
+    if [ "$(wc -l < /root/.ssh/id_ed25519)" -eq 1 ]; then
+        if grep -q "BEGIN OPENSSH PRIVATE KEY" /root/.ssh/id_ed25519 && grep -q "END OPENSSH PRIVATE KEY" /root/.ssh/id_ed25519; then
+            echo "[Git] Info: Reformatting one-line OpenSSH key into multiline key."
+            perl -0777 -i -pe '
+                if (/-----BEGIN OPENSSH PRIVATE KEY-----(.*?)-----END OPENSSH PRIVATE KEY-----/s) {
+                    $body = $1;
+                    $body =~ s/\s+//g;
+                    $body = join("\n", ($body =~ /(.{1,70})/g));
+                    s/-----BEGIN OPENSSH PRIVATE KEY-----(.*?)-----END OPENSSH PRIVATE KEY-----/-----BEGIN OPENSSH PRIVATE KEY-----\n$body\n-----END OPENSSH PRIVATE KEY-----/s;
+                }
+            ' /root/.ssh/id_ed25519
         fi
     fi
+
+    # Basic key sanity checks
+    if ! grep -q "BEGIN .*PRIVATE KEY" /root/.ssh/id_ed25519; then
+        echo "[Git] Error: SSH private key file does not contain a BEGIN marker."
+        echo "[Git] Please ensure your GIT_SSH_PRIVATE_KEY includes the full key with BEGIN/END lines."
+        exit 16
+    fi
+    if ! grep -q "END .*PRIVATE KEY" /root/.ssh/id_ed25519; then
+        echo "[Git] Error: SSH private key file does not contain an END marker."
+        echo "[Git] Please ensure you pasted the full private key."
+        exit 16
+    fi
+
+    # Print debug key stats (non-secret)
+    echo "[Git] Debug: key length lines=$(wc -l < /root/.ssh/id_ed25519)"
+    echo "[Git] Debug: key head=$(head -n 1 /root/.ssh/id_ed25519)"
+    echo "[Git] Debug: key tail=$(tail -n 1 /root/.ssh/id_ed25519)"
+
+    chmod 600 /root/.ssh/id_ed25519
+
+    # Validate the key before continuing
+    if ! ssh-keygen -y -f /root/.ssh/id_ed25519 > /dev/null 2>&1; then
+        echo "[Git] Error: SSH private key is invalid or unreadable. Ensure you pasted the full private key including BEGIN/END markers and that it is in PEM/OpenSSH format."
+        echo "[Git] Debug: key length lines=$(wc -l < /root/.ssh/id_ed25519)"
+        echo "[Git] Debug: key head=$(head -n 1 /root/.ssh/id_ed25519)"
+        echo "[Git] Debug: key tail=$(tail -n 1 /root/.ssh/id_ed25519)"
+        echo "[Git] Debug: key contains 'ENCRYPTED'=$(grep -c 'ENCRYPTED' /root/.ssh/id_ed25519)"
+        exit 16
+    fi
+
+    echo "[Git] Fetching GitHub Ed25519 host key."
+    ssh-keyscan -t ed25519 github.com > /tmp/github_known_hosts 2>/dev/null
+
+    if [ ! -s /tmp/github_known_hosts ]; then
+        echo "[Git] Error: Failed to retrieve GitHub host key."
+        exit 17
+    fi
+
+    EXPECTED_FP='SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU'
+    FETCHED_FP="$(ssh-keygen -lf /tmp/github_known_hosts -E sha256 | awk '{print $2}')"
+
+    if [ "${FETCHED_FP}" != "${EXPECTED_FP}" ]; then
+        echo "[Git] Error: GitHub host key fingerprint mismatch."
+        echo "[Git] Expected: ${EXPECTED_FP}"
+        echo "[Git] Got:      ${FETCHED_FP}"
+        exit 18
+    fi
+
+    mv /tmp/github_known_hosts /root/.ssh/known_hosts
+    chmod 600 /root/.ssh/known_hosts
+
+    export GIT_SSH_COMMAND="ssh -i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=${GIT_SSH_STRICT_HOST_CHECKING:-yes} -o UserKnownHostsFile=/root/.ssh/known_hosts"
+
+    echo "[Git] GitHub host key verified and known_hosts created."
+    ssh -T git@github.com || true
+fi
 
     # Check if the 'www' directory exists, if not create it
     if [ ! -d /mnt/server/www ]; then
@@ -153,11 +217,13 @@ else
         echo "[Git] /mnt/server/www directory is empty. Cloning into /mnt/server/www."
 
         if [ -n "${GIT_BRANCH}" ]; then
-            git clone --branch "${GIT_BRANCH}" --single-branch "${GIT_ADDRESS}" . > /dev/null 2>&1 \
+            echo "[Git] Running: git clone --branch ${GIT_BRANCH} --single-branch ${GIT_ADDRESS} ."
+            git clone --branch "${GIT_BRANCH}" --single-branch "${GIT_ADDRESS}" . \
                 && echo "[Git] Repository cloned successfully (branch '${GIT_BRANCH}')." \
                 || { echo "[Git] Error: git clone failed for 'www' (branch '${GIT_BRANCH}')."; exit 14; }
         else
-            git clone "${GIT_ADDRESS}" . > /dev/null 2>&1 \
+            echo "[Git] Running: git clone ${GIT_ADDRESS} ."
+            git clone "${GIT_ADDRESS}" . \
                 && echo "[Git] Repository cloned successfully." \
                 || { echo "[Git] Error: git clone failed for 'www'."; exit 14; }
         fi

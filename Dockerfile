@@ -167,8 +167,9 @@ RUN POLICY_FILE=$(find /etc -name "policy.xml" -path "*/ImageMagick*" 2>/dev/nul
         echo "ImageMagick policy.xml not found - skipping"; \
     fi
 
-# Create user and set environment variables
-RUN useradd -m -d /home/container/ -s /bin/bash container \
+# Create user and set environment variables (UID/GID 999 for Pterodactyl compatibility)
+RUN useradd -u 999 -U -m -d /home/container/ -s /bin/bash container || true \
+    && echo "container:x:999:999:container:/home/container:/bin/bash" >> /etc/passwd || true \
     && echo "USER=container" >> /etc/environment \
     && echo "HOME=/home/container" >> /etc/environment
 
