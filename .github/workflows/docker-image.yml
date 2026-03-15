@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - main
+      - feat/opensshgit
     tags:
       - 'v*.*.*'
   pull_request:
@@ -60,12 +61,12 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=raw,value=${{ matrix.php-version }}-latest,enable={{is_default_branch}}
-            type=raw,value=latest,enable={{is_default_branch}} && ${{ matrix.php-version == '8.3' }}
+            type=raw,value=${{ matrix.php-version }}-latest,enable=${{ github.ref_name == 'main' }}
+            type=raw,value=latest,enable=${{ github.ref_name == 'main' && matrix.php-version == '8.3' }}
+            type=raw,value=opensshgit-test,enable=${{ github.ref_name == 'feat/opensshgit' && matrix.php-version == '8.3' }}
             type=raw,value=${{ matrix.php-version }}-${{ github.sha }},enable=${{ github.event_name != 'pull_request' }}
             type=ref,event=tag,prefix=${{ matrix.php-version }}-
-            type=ref,event=tag,enable=${{ matrix.php-version == '8.3' }}
-            type=raw,value=${{ matrix.php-version }},enable={{is_default_branch}}
+            type=raw,value=${{ matrix.php-version }},enable=${{ github.ref_name == 'main' }}
 
       - name: Build and push Docker image
         id: build-and-push
