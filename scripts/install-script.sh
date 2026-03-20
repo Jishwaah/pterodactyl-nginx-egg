@@ -69,6 +69,7 @@ else
         GIT_ADDRESS="${GIT_ADDRESS}.git"
         echo "[Git] Added .git suffix to GIT_ADDRESS: ${GIT_ADDRESS}"
     fi
+    CLONE_URL="${GIT_ADDRESS}"
 
     GIT_HTTPS_USERNAME="${USERNAME:-x-access-token}"
 
@@ -164,7 +165,7 @@ else
     ssh -T git@github.com || true
     elif [ -n "${ACCESS_TOKEN:-}" ]; then
         echo "[Git] HTTPS remote detected. Using personal access token authentication."
-        GIT_ADDRESS="$(printf '%s' "${GIT_ADDRESS}" | sed -E "s|^https://|https://${GIT_HTTPS_USERNAME}:${ACCESS_TOKEN}@|")"
+        CLONE_URL="$(printf '%s' "${GIT_ADDRESS}" | sed -E "s|^https://|https://${GIT_HTTPS_USERNAME}:${ACCESS_TOKEN}@|")"
     else
         echo "[Git] Using anonymous Git access."
     fi
@@ -225,12 +226,12 @@ else
 
         if [ -n "${GIT_BRANCH}" ]; then
             echo "[Git] Running: git clone --branch ${GIT_BRANCH} --single-branch ${GIT_ADDRESS} ."
-            git clone --branch "${GIT_BRANCH}" --single-branch "${GIT_ADDRESS}" . \
+            git clone --branch "${GIT_BRANCH}" --single-branch "${CLONE_URL}" . \
                 && echo "[Git] Repository cloned successfully (branch '${GIT_BRANCH}')." \
                 || { echo "[Git] Error: git clone failed for 'www' (branch '${GIT_BRANCH}')."; exit 14; }
         else
             echo "[Git] Running: git clone ${GIT_ADDRESS} ."
-            git clone "${GIT_ADDRESS}" . \
+            git clone "${CLONE_URL}" . \
                 && echo "[Git] Repository cloned successfully." \
                 || { echo "[Git] Error: git clone failed for 'www'."; exit 14; }
         fi

@@ -65,6 +65,7 @@ fi
 cd "$GIT_DIR"
 
 CURRENT_URL="$(git config --get remote.origin.url || true)"
+FETCH_REMOTE="origin"
 
 if [[ -z "$CURRENT_URL" ]]; then
   echo -e "${YELLOW}[Git] No remote URL found; skipping.${NC}"
@@ -145,15 +146,15 @@ else
     GIT_HTTPS_USERNAME="${USERNAME:-x-access-token}"
     NEW_URL="https://${GIT_HTTPS_USERNAME}:${ACCESS_TOKEN}@${GIT_DOMAIN}/${GIT_REPO}"
 
-    git remote set-url origin "$NEW_URL"
-    echo -e "${GREEN}[Git] Remote URL updated with credentials.${NC}"
+    FETCH_REMOTE="$NEW_URL"
+    echo -e "${GREEN}[Git] Using one-off authenticated HTTPS remote for fetch.${NC}"
   else
     echo -e "${WHITE}[Git] No HTTPS credentials provided; using existing configuration.${NC}"
   fi
 fi
 
 echo -e "${WHITE}[Git] Fetching latest changes…${NC}"
-git fetch origin || { echo -e "${RED}[Git] Failed to fetch origin via SSH. Ensure GIT_SSH_PRIVATE_KEY and known_hosts are correct.${NC}"; exit 1; }
+git fetch "$FETCH_REMOTE" "$GIT_BRANCH:refs/remotes/origin/$GIT_BRANCH" || { echo -e "${RED}[Git] Failed to fetch remote changes. Ensure your Git credentials or SSH settings are correct.${NC}"; exit 1; }
 
 echo -e "${WHITE}[Git] Resetting working tree to origin/${GIT_BRANCH}…${NC}"
 git reset --hard "origin/${GIT_BRANCH}"
