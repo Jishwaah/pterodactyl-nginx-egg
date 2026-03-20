@@ -83,8 +83,42 @@ if [[ "$CURRENT_URL" =~ ^git@|^ssh:// ]]; then
     exit 1
   fi
 
-  echo "${GIT_SSH_PRIVATE_KEY}" | tr -d '\r' > "$SSH_DIR/id_ed25519"
+  # Normalize CRLF and literal \n escapes from panel-pasted keys.
+  KEY_CONTENT="${GIT_SSH_PRIVATE_KEY//$'\r'/}"
+  KEY_CONTENT="$(printf '%s' "$KEY_CONTENT" | perl -pe 's/\\n/\n/g')"
+
+  printf '%s\n' "$KEY_CONTENT" > "$SSH_DIR/id_ed25519"
+
+  # Repair keys pasted as a single BEGIN/body/END line separated by spaces.
+  if [ "$(wc -l < "$SSH_DIR/id_ed25519")" -eq 1 ]; then
+    if grep -q "BEGIN OPENSSH PRIVATE KEY" "$SSH_DIR/id_ed25519" && grep -q "END OPENSSH PRIVATE KEY" "$SSH_DIR/id_ed25519"; then
+      perl -0777 -i -pe '
+        if (/-----BEGIN OPENSSH PRIVATE KEY-----(.*?)-----END OPENSSH PRIVATE KEY-----/s) {
+          $body = $1;
+          $body =~ s/\s+//g;
+          $body = join("\n", ($body =~ /(.{1,70})/g));
+          s/-----BEGIN OPENSSH PRIVATE KEY-----(.*?)-----END OPENSSH PRIVATE KEY-----/-----BEGIN OPENSSH PRIVATE KEY-----\n$body\n-----END OPENSSH PRIVATE KEY-----/s;
+        }
+      ' "$SSH_DIR/id_ed25519"
+    fi
+  fi
+
+  if ! grep -q "BEGIN .*PRIVATE KEY" "$SSH_DIR/id_ed25519"; then
+    echo -e "${RED}[Git] SSH private key does not contain a BEGIN marker.${NC}"
+    exit 1
+  fi
+
+  if ! grep -q "END .*PRIVATE KEY" "$SSH_DIR/id_ed25519"; then
+    echo -e "${RED}[Git] SSH private key does not contain an END marker.${NC}"
+    exit 1
+  fi
+
   chmod 600 "$SSH_DIR/id_ed25519"
+
+  if ! ssh-keygen -y -f "$SSH_DIR/id_ed25519" >/dev/null 2>&1; then
+    echo -e "${RED}[Git] SSH private key is invalid after normalization. Check GIT_SSH_PRIVATE_KEY formatting.${NC}"
+    exit 1
+  fi
 
   if [[ -n "${GIT_SSH_KNOWN_HOSTS:-}" ]]; then
     echo "${GIT_SSH_KNOWN_HOSTS}" > "$SSH_DIR/known_hosts"
@@ -125,3 +159,8 @@ echo -e "${WHITE}[Git] Resetting working tree to origin/${GIT_BRANCH}…${NC}"
 git reset --hard "origin/${GIT_BRANCH}"
 
 echo -e "${GREEN}[Git] Repository updated successfully.${NC}"
+
+if [[ -x "/home/container/www/deploy.sh" ]]; then
+  header "Running app deploy script"
+  /home/container/www/deploy.sh
+fi

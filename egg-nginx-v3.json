@@ -56,6 +56,26 @@
             "field_type": "text"
         },
         {
+            "name": "Enable App Deploy Script",
+            "description": "If enabled, runs a custom deployment script on server startup after Git/composer steps.",
+            "env_variable": "APPDEPLOY_STATUS",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|in:0,1",
+            "field_type": "text"
+        },
+        {
+            "name": "App Deploy Script Path",
+            "description": "Absolute path to the deployment script. Defaults to /home/container/www/deploy.sh",
+            "env_variable": "APPDEPLOY_SCRIPT",
+            "default_value": "/home/container/www/deploy.sh",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:255",
+            "field_type": "text"
+        },
+        {
             "name": "PHP Version",
             "description": "Select the correct PHP version! See the tag behind the Docker image.  \r\nExample: Selected image (ghcr.io\/ym0t\/nginx_php:8.4)\r\nEnter in the field: 8.4",
             "env_variable": "PHP_VERSION",
