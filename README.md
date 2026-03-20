@@ -1,6 +1,6 @@
 # Pterodactyl Nginx Egg
 
-A versatile Pterodactyl Egg featuring Nginx, PHP 8.x, WordPress, Git, Composer, Cronjob, ionCube Loader, Auto-Update, and Cloudflare Tunnel support.
+A versatile Pterodactyl Egg featuring Nginx, PHP 8.x, WordPress, Git, GitHub SSH, Composer, Cronjob, ionCube Loader, Auto-Update, Cloudflare Tunnel and Deploy Script support.
 
 <br>
 
@@ -353,6 +353,12 @@ PHP extensions of PHP version 8.3:
 ```bash
 Core, date, libxml, openssl, pcre, zlib, filter, hash, json, random, Reflection, SPL, session, standard, sodium, cgi-fcgi, mysqlnd, PDO, psr, xml, bcmath, calendar, ctype, curl, dom, mbstring, FFI, fileinfo, ftp, gd, gettext, gmp, iconv, igbinary, imagick, imap, intl, ldap, exif, memcache, mongodb, msgpack, mysqli, odbc, pcov, pdo_mysql, PDO_ODBC, pdo_pgsql, pdo_sqlite, pgsql, Phar, posix, ps, pspell, readline, shmop, SimpleXML, soap, sockets, sqlite3, sysvmsg, sysvsem, sysvshm, tokenizer, xmlreader, xmlwriter, xsl, zip, mailparse, memcached, inotify, maxminddb, protobuf, Zend OPcache
 ```
+
+<br>
+
+## 🔨 Deploy Script  
+
+Use GitHub actions, or want to run an automatic script to run install for your web project when pulling from Git? Enable the Deploy Script toggle and configure the deploy script location for it to automatically run on container restart!
 
 <br>
 
