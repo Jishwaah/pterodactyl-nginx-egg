@@ -65,6 +65,7 @@ fi
 cd "$GIT_DIR"
 
 CURRENT_URL="$(git config --get remote.origin.url || true)"
+FETCH_REMOTE="origin"
 
 if [[ -z "$CURRENT_URL" ]]; then
   echo -e "${YELLOW}[Git] No remote URL found; skipping.${NC}"
@@ -83,8 +84,42 @@ if [[ "$CURRENT_URL" =~ ^git@|^ssh:// ]]; then
     exit 1
   fi
 
-  echo "${GIT_SSH_PRIVATE_KEY}" | tr -d '\r' > "$SSH_DIR/id_ed25519"
+  # Normalize CRLF and literal \n escapes from panel-pasted keys.
+  KEY_CONTENT="${GIT_SSH_PRIVATE_KEY//$'\r'/}"
+  KEY_CONTENT="$(printf '%s' "$KEY_CONTENT" | perl -pe 's/\\n/\n/g')"
+
+  printf '%s\n' "$KEY_CONTENT" > "$SSH_DIR/id_ed25519"
+
+  # Repair keys pasted as a single BEGIN/body/END line separated by spaces.
+  if [ "$(wc -l < "$SSH_DIR/id_ed25519")" -eq 1 ]; then
+    if grep -q "BEGIN OPENSSH PRIVATE KEY" "$SSH_DIR/id_ed25519" && grep -q "END OPENSSH PRIVATE KEY" "$SSH_DIR/id_ed25519"; then
+      perl -0777 -i -pe '
+        if (/-----BEGIN OPENSSH PRIVATE KEY-----(.*?)-----END OPENSSH PRIVATE KEY-----/s) {
+          $body = $1;
+          $body =~ s/\s+//g;
+          $body = join("\n", ($body =~ /(.{1,70})/g));
+          s/-----BEGIN OPENSSH PRIVATE KEY-----(.*?)-----END OPENSSH PRIVATE KEY-----/-----BEGIN OPENSSH PRIVATE KEY-----\n$body\n-----END OPENSSH PRIVATE KEY-----/s;
+        }
+      ' "$SSH_DIR/id_ed25519"
+    fi
+  fi
+
+  if ! grep -q "BEGIN .*PRIVATE KEY" "$SSH_DIR/id_ed25519"; then
+    echo -e "${RED}[Git] SSH private key does not contain a BEGIN marker.${NC}"
+    exit 1
+  fi
+
+  if ! grep -q "END .*PRIVATE KEY" "$SSH_DIR/id_ed25519"; then
+    echo -e "${RED}[Git] SSH private key does not contain an END marker.${NC}"
+    exit 1
+  fi
+
   chmod 600 "$SSH_DIR/id_ed25519"
+
+  if ! ssh-keygen -y -f "$SSH_DIR/id_ed25519" >/dev/null 2>&1; then
+    echo -e "${RED}[Git] SSH private key is invalid after normalization. Check GIT_SSH_PRIVATE_KEY formatting.${NC}"
+    exit 1
+  fi
 
   if [[ -n "${GIT_SSH_KNOWN_HOSTS:-}" ]]; then
     echo "${GIT_SSH_KNOWN_HOSTS}" > "$SSH_DIR/known_hosts"
@@ -98,29 +133,35 @@ if [[ "$CURRENT_URL" =~ ^git@|^ssh:// ]]; then
   fi
   chmod 600 "$SSH_DIR/known_hosts"
 
-  export GIT_SSH_COMMAND="ssh -i $SSH_DIR/id_ed25519 -o StrictHostKeyChecking=${GIT_SSH_STRICT_HOST_CHECKING} -o UserKnownHostsFile=$SSH_DIR/known_hosts"
+  export GIT_SSH_COMMAND="ssh -i $SSH_DIR/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=${GIT_SSH_STRICT_HOST_CHECKING} -o UserKnownHostsFile=$SSH_DIR/known_hosts"
 
 # HTTPS token auth fallback
 else
-  if [[ -n "${USERNAME:-}" ]] && [[ -n "${ACCESS_TOKEN:-}" ]]; then
+  if [[ -n "${ACCESS_TOKEN:-}" ]]; then
     echo -e "${WHITE}[Git] HTTPS remote detected; applying token auth…${NC}"
 
     CLEAN_URL="$(echo "$CURRENT_URL" | sed -E 's|https://[^@]*@|https://|')"
     GIT_DOMAIN="$(echo "$CLEAN_URL" | sed -E 's|https://([^/]+)/.*|\1|')"
     GIT_REPO="$(echo "$CLEAN_URL" | sed -E 's|https://[^/]+/(.*)|\1|')"
-    NEW_URL="https://${USERNAME}:${ACCESS_TOKEN}@${GIT_DOMAIN}/${GIT_REPO}"
+    GIT_HTTPS_USERNAME="${USERNAME:-x-access-token}"
+    NEW_URL="https://${GIT_HTTPS_USERNAME}:${ACCESS_TOKEN}@${GIT_DOMAIN}/${GIT_REPO}"
 
-    git remote set-url origin "$NEW_URL"
-    echo -e "${GREEN}[Git] Remote URL updated with credentials.${NC}"
+    FETCH_REMOTE="$NEW_URL"
+    echo -e "${GREEN}[Git] Using one-off authenticated HTTPS remote for fetch.${NC}"
   else
     echo -e "${WHITE}[Git] No HTTPS credentials provided; using existing configuration.${NC}"
   fi
 fi
 
 echo -e "${WHITE}[Git] Fetching latest changes…${NC}"
-git fetch origin || { echo -e "${RED}[Git] Failed to fetch origin via SSH. Ensure GIT_SSH_PRIVATE_KEY and known_hosts are correct.${NC}"; exit 1; }
+git fetch "$FETCH_REMOTE" "$GIT_BRANCH:refs/remotes/origin/$GIT_BRANCH" || { echo -e "${RED}[Git] Failed to fetch remote changes. Ensure your Git credentials or SSH settings are correct.${NC}"; exit 1; }
 
 echo -e "${WHITE}[Git] Resetting working tree to origin/${GIT_BRANCH}…${NC}"
 git reset --hard "origin/${GIT_BRANCH}"
 
 echo -e "${GREEN}[Git] Repository updated successfully.${NC}"
+
+if [[ -x "/home/container/www/deploy.sh" ]]; then
+  header "Running app deploy script"
+  /home/container/www/deploy.sh
+fi

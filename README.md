@@ -49,7 +49,9 @@ A versatile Pterodactyl Egg featuring Nginx, PHP 8.x, WordPress, Git, Composer, 
 3. Import the egg under **Import Egg**  
 4. Create a new server and select the **Nginx** egg  
 5. Choose the Docker image matching your desired PHP version  
-6. Fill in all required variables, including whether WordPress is desired and the PHP version field (must be set explicitly)  
+6. If you enter the image manually, keep the full repository path lowercase, for example `ghcr.io/jishwaah/pterodactyl-nginx-egg:8.4-latest`  
+7. Fill in all required variables, including whether WordPress is desired and the PHP version field (must be set explicitly)  
+8. After the installation finishes, start the server manually once so Nginx, PHP-FPM, and the optional modules begin running  
 
 <br>
 
@@ -282,7 +284,12 @@ With **Cloudflared**, you can create a secure tunnel to your server, making it a
 
 - Specify your Git repository URL in the `GIT_ADDRESS` variable  
 - Enable Git by setting the `GIT_STATUS` variable to `1` or `true`  
+- For private HTTPS repositories, set `ACCESS_TOKEN` to a personal access token. `USERNAME` is optional and defaults to `x-access-token` when left blank.  
+- For SSH repositories, use an SSH clone URL such as `git@github.com:owner/repo.git` and provide `GIT_SSH_PRIVATE_KEY` instead of `ACCESS_TOKEN`  
+- If you use SSH, ensure the private key has access to the repository and paste the full key including the `BEGIN` and `END` lines into `GIT_SSH_PRIVATE_KEY`  
+- `GIT_SSH_KNOWN_HOSTS` can be provided manually, but GitHub host verification is handled automatically during install when possible  
 - On server creation, your repo will be cloned into the `www` folder  
+- After the initial installation completes, start the server manually once to begin the first runtime boot sequence  
 - On each restart, `git pull` runs to update the files  
 
 <br>
