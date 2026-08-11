@@ -59,7 +59,6 @@ RUN apt-get update && apt-get install -y \
         php${PHP_VERSION}-mysqlnd \
         php${PHP_VERSION}-pdo \
         php${PHP_VERSION}-sybase \
-        php${PHP_VERSION}-psr \
         php${PHP_VERSION}-xml \
         php${PHP_VERSION}-bcmath \
         php${PHP_VERSION}-calendar \
